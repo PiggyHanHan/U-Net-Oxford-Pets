@@ -145,10 +145,20 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_w
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"使用设备：{device}")
 
-num_classes = 37  # 背景(0) + 36种宠物(1~36)
-model = UNet(n_channels=3, n_classes=num_classes).to(device)
-criterion = nn.CrossEntropyLoss()  # 多类交叉熵损失
+num_classes = 37
+model = UNet(n_channels=3, n_classes=num_classes)
+
+# ----- 多卡开关（默认关闭）-----
+use_multi_gpu = False   # 改为 True 启用 DataParallel
+if use_multi_gpu and torch.cuda.device_count() > 1:
+    print(f"使用 {torch.cuda.device_count()} 张 GPU")
+    model = nn.DataParallel(model)
+
+model = model.to(device)
+
+criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
+
 
 num_epochs = 20  # 多类需要更多迭代
 best_val_loss = float('inf')
@@ -210,36 +220,3 @@ for epoch in range(1, num_epochs + 1):
         print('  -> 保存最佳模型')
 
 print("训练完成！")
-
-
-# -------------------- 5. 可视化部分验证结果（用彩色显示多类） --------------------
-def visualize_predictions(model, loader, device, num_images=3):
-    model.eval()
-    fig, axes = plt.subplots(num_images, 3, figsize=(15, num_images*5))
-    # 定义一个固定颜色映射（37类+背景）
-    cmap = plt.cm.get_cmap('tab20', num_classes)  # tab20最多20种颜色，但我们可以用jet
-    with torch.no_grad():
-        for i, (images, masks) in enumerate(loader):
-            if i >= num_images:
-                break
-            images, masks = images.to(device), masks.to(device)
-            outputs = model(images)
-            preds = torch.argmax(outputs, dim=1).cpu().numpy()
-            img = images[0].cpu().permute(1,2,0).numpy()
-            mask = masks[0].cpu().numpy()
-            pred = preds[0]
-
-            axes[i, 0].imshow(img)
-            axes[i, 0].set_title('输入图像')
-            axes[i, 1].imshow(mask, cmap='jet', vmin=0, vmax=num_classes-1)
-            axes[i, 1].set_title('真实掩码')
-            axes[i, 2].imshow(pred, cmap='jet', vmin=0, vmax=num_classes-1)
-            axes[i, 2].set_title('预测掩码')
-            for ax in axes[i]:
-                ax.axis('off')
-    plt.tight_layout()
-    plt.savefig('oxford_pets_multiclass_prediction.png')
-    plt.show()
-
-visualize_predictions(model, val_loader, device, num_images=3)
-print("可视化结果已保存为 oxford_pets_multiclass_prediction.png")
